@@ -1,0 +1,9 @@
+backend/.venv/
+__pycache__/
+frontend/node_modules/
+frontend/dist/
+.DS_Store
+.env
+!.env.example
+.run/
+.claude/
