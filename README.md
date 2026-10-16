@@ -1,149 +1,142 @@
 # Redis KV Cache Chat
 
-Demo de chat (estilo ChatGPT) que mostra o efeito do **KV cache de verdade** (tensores K e V
-do modelo) persistido no **Redis**. Não é cache semântico.
+A ChatGPT-style chat that shows the effect of a **real KV cache** (the model's K and V
+tensors) persisted in **Redis**.
 
 ```
-frontend/  React + Vite + TypeScript (visual Redis), compilado em frontend/dist
-backend/   FastAPI + mlx-lm: serve a API e o frontend em :8000  <-->  Redis (docker) :6379
-cloudflared (só no prod) expõe :8000 em https://kvcache.mauriciolima.dev
+frontend/  React + Vite + TypeScript (Redis look and feel), built into frontend/dist
+backend/   FastAPI + mlx-lm: serves the API and the frontend on :8000  <-->  Redis (docker) :6379
+cloudflared (prod only) exposes :8000 at https://kvcache.mauriciolima.dev
 ```
 
-Requer macOS com Apple Silicon (MLX), Python 3.12+, Node 20+, Docker e cloudflared.
+Requires macOS on Apple Silicon (MLX), Python 3.12+, Node 20+, Docker and cloudflared.
 
-## Configuração
+## Configuration
 
-Tudo fica no `.env` (fora do git). Na primeira execução do `make`, ele é criado a partir do
+Everything lives in `.env` (not tracked by git). The first `make` run creates it from
 `.env.example`.
 
-| Variável | Uso |
+| Variable | Purpose |
 |---|---|
-| `MODEL_ID` | modelo MLX do Hugging Face (padrão: Llama 3.1 8B 4-bit; o 3.2 3B fica comentado) |
-| `REDIS_NAME`, `REDIS_IMAGE`, `REDIS_PORT` | container do Redis |
-| `BACKEND_PORT` | porta do backend (API + frontend) |
-| `CLOUDFLARE_TUNNEL_TOKEN` | token `eyJ...` do tunnel (só para `make prod`) |
+| `MODEL_ID` | MLX model from Hugging Face (default: Llama 3.1 8B 4-bit; Llama 3.2 3B is left commented out) |
+| `REDIS_NAME`, `REDIS_IMAGE`, `REDIS_PORT` | Redis container |
+| `BACKEND_PORT` | backend port (API + frontend) |
+| `CLOUDFLARE_TUNNEL_TOKEN` | tunnel token, the `eyJ...` string (only for `make prod`) |
 
-Opcionais no ambiente do backend: `KV_TTL_SECONDS` (3600), `MAX_TOKENS` (2048, teto de segurança da resposta),
-`CHAT_TEMPLATE_DATE`, `REDIS_URL`, `REDIS_SOCKET_TIMEOUT` (60 s).
+Optional backend environment variables: `KV_TTL_SECONDS` (3600), `MAX_TOKENS` (2048, a safety
+cap on reply length), `CHAT_TEMPLATE_DATE`, `REDIS_URL`, `REDIS_SOCKET_TIMEOUT` (60 s).
 
-## Upload de documento
-
-O botão **+ Anexar** (ou arrastar o arquivo para a caixa de mensagem) aceita `.txt` e `.md`
-de até 80 KB. O arquivo só pode ir na **primeira mensagem** da conversa, junto com o texto
-digitado; se nada for digitado, vai com "Leia o documento a seguir e aguarde minhas
-perguntas.". A conversa ganha o nome do arquivo e a bolha mostra só o nome e o tamanho.
-Para a demo, documentos de ~8 a 12 mil tokens (25 a 40 KB de texto) deixam a diferença bem
-visível sem que a busca/gravação no Redis pese demais.
-
-## Comparar conversas
-
-Na barra lateral, **Comparar conversas** mostra uma caixa de seleção em cada conversa com
-respostas. Marque de 2 a 4 e clique de novo no botão (**Gerar gráfico**): a análise abre numa
-nova aba em `/{idioma}/analyse?id=<id1>,<id2>,...`.
-
-A página mostra, para a métrica escolhida (espera até a 1ª palavra, espera + busca no Redis,
-tempo total da resposta ou tokens lidos):
-
-- um card por conversa com o total das respostas em comum e a variação em relação à base;
-- um gráfico de linhas com o valor de cada resposta;
-- um gráfico de barras com a variação percentual de cada resposta em relação à base
-  (abaixo de 0% = mais rápido);
-- uma tabela com os mesmos valores.
-
-A base de comparação começa na conversa sem KVCache, se houver, e pode ser trocada. Os dados
-vêm do `localStorage`, então a análise só funciona no navegador onde as conversas foram feitas.
-As cores das conversas são as 4 primeiras da paleta categórica escura de referência,
-validadas contra o fundo do app.
-
-## Idiomas
-
-A interface está em português (`/pt-br`) e inglês dos EUA (`/en-us`). O idioma vem do path;
-sem path, usa a última escolha ou o idioma do navegador. O seletor PT | EN no canto superior
-direito troca o idioma e o path sem recarregar. Os textos ficam em `frontend/src/i18n.ts`.
-
-Cada conversa guarda o idioma em que foi criada, e o backend usa o system prompt desse idioma
-(`SYSTEM_PROMPTS` em `backend/app/config.py`). Trocar o idioma no meio de uma conversa muda
-só a interface: o system prompt não pode mudar entre turnos, senão o prefixo do KV cache
-deixa de bater.
-
-## Uso
+## Usage
 
 ```bash
-make build    # venv + deps Python, modelo (~1,8 GB), npm install, cloudflared, imagem do Redis
-make dev      # liga/desliga: Redis + backend em 2º plano -> http://localhost:8000
-make prod     # liga/desliga: igual ao dev + Cloudflare Tunnel -> URL pública
-make status   # o que está rodando e a URL
-make logs     # acompanha o log (.run/app.log)
-make test     # paridade: cache ligado/desligado deve gerar o MESMO texto
-make keys     # chaves kvcache:* com TTL e memória
+make build    # Python venv + deps, model weights, npm install, cloudflared, Redis image
+make dev      # toggle: Redis + backend in the background -> http://localhost:8000
+make prod     # toggle: same as dev + Cloudflare Tunnel -> public URL
+make status   # what is running, and its URL
+make logs     # follow the log (.run/app.log)
+make test     # parity check: cache on and off must produce the SAME text
+make keys     # kvcache:* keys with TTL and memory usage
 ```
 
-`make dev` e `make prod` usam o mesmo fluxo (`scripts/run.sh`): sobem o Redis, compilam o
-frontend e iniciam o backend, que serve a interface e a API na mesma porta. A única diferença
-é que o `prod` também inicia o `cloudflared`. Rodar o mesmo comando de novo desliga. Só um
-modo roda por vez, porque os dois usam a `BACKEND_PORT`. O Redis acompanha o app: ao ligar, um container novo e vazio é
-criado; ao desligar, ele é removido junto com os dados.
+`make dev` and `make prod` share the same pipeline (`scripts/run.sh`): start Redis, build the
+frontend and start the backend, which serves both the UI and the API on the same port. The only
+difference is that `prod` also starts `cloudflared`. Running the same command again stops it.
+Only one mode runs at a time, since both use `BACKEND_PORT`. Redis follows the app's lifecycle:
+a fresh, empty container is created on start and removed, along with its data, on stop.
 
-Para editar o frontend com hot reload, deixe o `make dev` rodando e use `make frontend`
-(Vite em http://localhost:5173, com proxy de `/api` para o backend).
+To work on the frontend with hot reload, keep `make dev` running and use `make frontend`
+(Vite on http://localhost:5173, proxying `/api` to the backend).
 
 ### Cloudflare Tunnel
 
-O tunnel é gerenciado pelo painel: o token vem de **Zero Trust > Networks > Tunnels >
-(tunnel) > Install connector** (string longa `eyJ...`; o UUID do tunnel não serve). No mesmo
-tunnel, em **Public Hostname**, aponte o domínio para `http://localhost:8000`. A URL fica
-pública; para restringir o acesso, use Cloudflare Access.
+The tunnel is managed from the dashboard: the token comes from **Zero Trust > Networks >
+Tunnels > (tunnel) > Install connector** (the long `eyJ...` string; the tunnel UUID does not
+work). In the same tunnel, under **Public Hostname**, point the domain at
+`http://localhost:8000`. The URL is public; use Cloudflare Access to restrict it.
 
-## Como funciona o interruptor KVCache
+## How the KVCache toggle works
 
-Os dois modos usam KV cache durante a geração (cada token novo calcula só a sua posição);
-a diferença é o que acontece entre uma mensagem e outra:
+The toggle is per chat. Both modes use a KV cache during generation (each new token only
+computes its own position); the difference is what happens between one message and the next:
 
-- **Desligado (cache padrão do mlx-lm)**: `stream_generate` sem `prompt_cache`. A biblioteca
-  cria um cache para a resposta e o descarta no fim, então cada mensagem relê o histórico
-  inteiro. Não toca no Redis.
-- **Ligado (cache persistente no Redis)**: `stream_generate` com `prompt_cache`. Carrega do
-  Redis o cache da conversa + a lista de token ids que ele contém, calcula o maior prefixo
-  comum com o histórico atual, corta o excedente com `trim_prompt_cache`, processa só os
-  tokens novos e grava o cache atualizado de volta.
+- **Off (mlx-lm default cache)**: `stream_generate` without `prompt_cache`. The library builds
+  a cache for the reply and discards it at the end, so every message re-reads the whole
+  history. Redis is not touched.
+- **On (cache persisted in Redis)**: `stream_generate` with `prompt_cache`. Load the chat's
+  cache from Redis plus the list of token ids it covers, find the longest common prefix with
+  the current history, trim the rest with `trim_prompt_cache`, process only the new tokens,
+  and write the updated cache back.
 
-A diferença aparece no **tempo até a 1ª palavra**, que é o destaque do card; a velocidade de
-escrita é a mesma nos dois modos. Para ficar visível, comece a conversa com um texto longo
-(alguns milhares de tokens).
+The difference shows up in the **time to first word**, the headline number on each reply's
+card; generation speed is the same in both modes. To make it visible, start the chat with a
+long text (a few thousand tokens).
 
-Chaves no Redis (as três com o mesmo TTL e apagadas juntas ao excluir a conversa):
+Redis keys (all three share the same TTL and are deleted together when the chat is deleted):
 
-- `kvcache:{model_id}:{conversation_id}`: bytes do safetensors gerado por `save_prompt_cache`
-- `kvcache:{model_id}:{conversation_id}:meta`: hash com `token_ids`, `n_tokens`, `n_bytes`,
+- `kvcache:{model_id}:{conversation_id}`: safetensors bytes produced by `save_prompt_cache`
+- `kvcache:{model_id}:{conversation_id}:meta`: hash with `token_ids`, `n_tokens`, `n_bytes`,
   `model_id`, `updated_at`
-- `kvcache:{model_id}:{conversation_id}:stats`: hash com as somas da conversa (respostas,
-  esperas, tempos do LLM e do Redis, tokens lidos e reaproveitados), atualizado em toda
-  resposta, com o KVCache ligado ou desligado
+- `kvcache:{model_id}:{conversation_id}:stats`: hash with the chat's running totals (replies,
+  waits, LLM and Redis times, tokens read and reused), updated on every reply with the cache
+  on or off
 
-O cache ocupa ~112 KB por token no 3B (28 camadas × 8 cabeças KV × 128 × fp16 × K/V) e
-~128 KB por token no 8B (32 camadas),
-por isso o Redis sobe com `--proto-max-bulk-len 4gb` e `--client-query-buffer-limit 4gb`
-(os padrões de 512 MB por valor e 1 GB por comando estourariam com ~4k e ~8k tokens) e sem
-persistência em disco (`--save ""`), já que o container é descartado ao desligar.
+The cache takes ~112 KB per token on the 3B (28 layers × 8 KV heads × 128 × fp16 × K/V) and
+~128 KB per token on the 8B (32 layers). That is why Redis starts with
+`--proto-max-bulk-len 4gb` and `--client-query-buffer-limit 4gb` (the defaults of 512 MB per
+value and 1 GB per command would overflow at ~4k and ~8k tokens) and with disk persistence
+off (`--save ""`), since the container is discarded on stop.
 
-## Métricas por resposta
+## Metrics per reply
 
-Medidas no backend com `time.perf_counter` (sem rede). O card mostra só o que muda entre os
-modos:
+Measured on the backend with `time.perf_counter` (no network). Each card shows only what
+differs between the modes, in two groups split by a divider: on the left, metrics both modes
+produce; on the right, metrics only the Redis cache produces (shown as "—" when the cache is
+off).
 
-- **Destaque:** espera até a 1ª palavra.
-- **LLM:** tempo total da resposta e, com o KVCache ligado, busca e gravação da memória
-  (KV cache) no Redis, mostradas à parte do tempo do LLM.
-- **Processamento de tokens:** tamanho da conversa, tokens lidos agora, tokens
-  reaproveitados da memória e, com o KVCache ligado, o tamanho da memória no Redis.
-- **+ Total do chat:** as somas da conversa até aquela resposta (lidas do hash `:stats`).
-  A leitura e a gravação desse hash ficam fora de todos os tempos medidos.
+- **Headline:** time to first word.
+- **LLM:** total reply time | Redis memory load and save, reported separately from LLM time.
+- **Token processing:** conversation size, tokens read now, tokens reused from memory | size
+  of the memory stored in Redis.
+- **+ Chat total:** the chat's running totals up to that reply (read from the `:stats` hash).
+  Reading and writing that hash happen outside every measured time.
 
-## Decisões / suposições
+## Document upload
 
-- Temperatura 0 (sampler guloso padrão do mlx-lm), para o teste de paridade.
-- O template do Llama 3.2 injeta `Today Date` via `strftime_now`; fixamos `date_string`
-  para o prefixo não mudar.
-- O frontend envia o histórico completo a cada turno; o backend é stateless além do Redis.
-- Uma única thread executa todo o trabalho MLX (streams thread-local); requisições são
-  serializadas (multiusuário fora de escopo).
+The **+ Attach** button (or dragging a file onto the message box) accepts `.txt` and `.md`
+files up to 80 KB. A file can only be sent as the **first message** of a chat, together with
+the typed text; if nothing is typed, it goes with "Read the following document and wait for my
+questions.". The chat takes the file name, and the bubble shows only the name and size. For a
+demo, documents of ~8 to 12k tokens (25 to 40 KB of text) make the difference clearly visible
+without the Redis load/save weighing too much.
+
+## Comparing chats
+
+In the sidebar, **Compare chats** shows a checkbox on every chat that has replies. Pick 2 to 4
+and click the button again (**Generate chart**): the analysis opens in a new tab at
+`/{language}/analyse?id=<id1>,<id2>,...`.
+
+For the selected metric (time to first word, wait + Redis load, total reply time or tokens
+read), the page shows:
+
+- one card per chat with the total over the replies they have in common and the change
+  relative to the baseline;
+- a line chart with each reply's value;
+- a bar chart with each reply's percent change relative to the baseline (below 0% = faster);
+- a table with the same values.
+
+The baseline defaults to the chat without KVCache, if there is one, and can be changed. Data
+comes from `localStorage`, so the analysis only works in the browser where the chats were
+made. Chat colors are the first 4 slots of the reference dark categorical palette, validated
+against the app background.
+
+## Languages
+
+The UI is available in Portuguese (`/pt-br`) and US English (`/en-us`). The language comes from
+the path; without one, the last choice or the browser language is used. The PT | EN switch in
+the top-right corner changes the language and the path without a reload. UI strings live in
+`frontend/src/i18n.ts`.
+
+Each chat keeps the language it was created in, and the backend uses that language's system
+prompt (`SYSTEM_PROMPTS` in `backend/app/config.py`). Switching the language mid-chat changes
+only the UI: the system prompt cannot change between turns, otherwise the KV cache prefix
+would no longer match.
